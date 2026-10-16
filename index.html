@@ -4,6 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#0b1120" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Jontech" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="/jontech-icon.svg" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/jontech-icon-180.png" />
     <meta
       name="description"
       content="Meet Aljon Alonzo of Jontech, Website & Digital Business Associate. Get in touch, find the business location, or connect online."
@@ -19,6 +24,22 @@
       rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
     />
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem("nfc_card_theme");
+          if (saved === "light") {
+            document.documentElement.setAttribute("data-theme", "light");
+            var meta = document.querySelector('meta[name="theme-color"]');
+            if (meta) meta.setAttribute("content", "#f6f1e8");
+          } else {
+            document.documentElement.setAttribute("data-theme", "dark");
+          }
+        } catch (e) {
+          document.documentElement.setAttribute("data-theme", "dark");
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

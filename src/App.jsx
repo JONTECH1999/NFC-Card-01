@@ -127,16 +127,79 @@ function ActionLink({ action }) {
   );
 }
 
+function getInstallGuide() {
+  const userAgent = navigator.userAgent;
+  const isIOS =
+    /iPad|iPhone|iPod/.test(userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const isAndroid = /Android/i.test(userAgent);
+  const isSafari = /^((?!chrome|android).)*safari/i.test(userAgent);
+
+  if (isIOS) {
+    return {
+      browser: "On iPhone or iPad",
+      steps: [
+        "Open this page in Safari.",
+        "Tap the Share button.",
+        "Choose Add to Home Screen, then tap Add.",
+      ],
+    };
+  }
+
+  if (isAndroid) {
+    return {
+      browser: "On Android",
+      steps: [
+        "Open this page in Chrome or your preferred browser.",
+        "Open the browser menu (⋮).",
+        "Choose Install app or Add to Home screen, then confirm.",
+      ],
+    };
+  }
+
+  if (isSafari) {
+    return {
+      browser: "In Safari on Mac",
+      steps: [
+        "Open the File menu.",
+        "Choose Add to Dock.",
+        "Confirm to add Jontech to your Dock and apps.",
+      ],
+    };
+  }
+
+  return {
+    browser: "On this computer",
+    steps: [
+      "Open this page in Chrome or Microsoft Edge.",
+      "Select the install icon in the address bar, or open the browser menu.",
+      "Choose Install page as app or Install Jontech, then confirm.",
+    ],
+  };
+}
+
 function App() {
   const [introPhase, setIntroPhase] = useState("loading");
   const [tapRipple, setTapRipple] = useState(null);
   const [qrOpen, setQrOpen] = useState(false);
+  const [installHelpOpen, setInstallHelpOpen] = useState(false);
   const [toast, setToast] = useState("");
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [theme, setTheme] = useState(() => {
+    try {
+      return localStorage.getItem("nfc_card_theme") || "dark";
+    } catch {
+      return "dark";
+    }
+  });
   const toastTimer = useRef(null);
   const rippleTimer = useRef(null);
   const pageRef = useRef(null);
   const qrButton = useRef(null);
   const closeButton = useRef(null);
+  const installButton = useRef(null);
+  const installCloseButton = useRef(null);
+  const installHelpWasOpen = useRef(false);
 
   useLayoutEffect(() => {
     window.history.scrollRestoration = "manual";
@@ -144,8 +207,62 @@ function App() {
   }, []);
 
   useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    const metaTheme = document.querySelector('meta[name="theme-color"]');
+    if (metaTheme) {
+      metaTheme.setAttribute(
+        "content",
+        theme === "light" ? "#f6f1e8" : "#0b1120"
+      );
+    }
+  }, [theme]);
+
+  function toggleTheme() {
+    const nextTheme = theme === "light" ? "dark" : "light";
+    setTheme(nextTheme);
+    try {
+      localStorage.setItem("nfc_card_theme", nextTheme);
+    } catch (e) {
+      console.error("Could not save theme preference:", e);
+    }
+    document.documentElement.setAttribute("data-theme", nextTheme);
+    const metaTheme = document.querySelector('meta[name="theme-color"]');
+    if (metaTheme) {
+      metaTheme.setAttribute(
+        "content",
+        nextTheme === "light" ? "#f6f1e8" : "#0b1120"
+      );
+    }
+    showToast(
+      nextTheme === "light"
+        ? "Switched to Warm Beige view"
+        : "Switched to Classic Dark view"
+    );
+  }
+
+  useEffect(() => {
     if (pageRef.current) pageRef.current.inert = introPhase !== "done";
   }, [introPhase]);
+
+  useEffect(() => {
+    function handleInstallAvailable(event) {
+      event.preventDefault();
+      setInstallPrompt(event);
+    }
+
+    function handleAppInstalled() {
+      setInstallPrompt(null);
+      setInstallHelpOpen(false);
+      showToast("Jontech was added to your apps.");
+    }
+
+    window.addEventListener("beforeinstallprompt", handleInstallAvailable);
+    window.addEventListener("appinstalled", handleAppInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleInstallAvailable);
+      window.removeEventListener("appinstalled", handleAppInstalled);
+    };
+  }, []);
 
   useEffect(() => {
     const reducedMotion = window.matchMedia(
@@ -174,6 +291,18 @@ function App() {
     if (qrOpen) closeButton.current?.focus();
   }, [qrOpen]);
 
+  useEffect(() => {
+    if (installHelpOpen) {
+      installHelpWasOpen.current = true;
+      installCloseButton.current?.focus();
+    } else if (installHelpWasOpen.current) {
+      installHelpWasOpen.current = false;
+      installButton.current?.focus();
+    }
+  }, [installHelpOpen]);
+
+  const installGuide = getInstallGuide();
+
   function showToast(message) {
     setToast(message);
     window.clearTimeout(toastTimer.current);
@@ -183,6 +312,10 @@ function App() {
   function closeQR() {
     setQrOpen(false);
     window.requestAnimationFrame(() => qrButton.current?.focus());
+  }
+
+  function closeInstallHelp() {
+    setInstallHelpOpen(false);
   }
 
   function animateCardTap(event) {
@@ -240,16 +373,49 @@ function App() {
     }
   }
 
+  async function installCard() {
+    const isInstalled =
+      window.matchMedia("(display-mode: standalone)").matches ||
+      navigator.standalone === true;
+
+    if (isInstalled) {
+      showToast("Jontech is already open as an app.");
+      return;
+    }
+
+    if (installPrompt) {
+      try {
+        await installPrompt.prompt();
+        const { outcome } = await installPrompt.userChoice;
+        setInstallPrompt(null);
+        if (outcome === "accepted") {
+          showToast("Jontech was added to your apps.");
+        } else {
+          setInstallHelpOpen(true);
+        }
+      } catch (error) {
+        console.error("Unable to install Jontech:", error);
+        setInstallHelpOpen(true);
+      }
+      return;
+    }
+
+    setInstallHelpOpen(true);
+  }
+
   useEffect(() => {
-    if (!qrOpen) return undefined;
+    if (!qrOpen && !installHelpOpen) return undefined;
 
     function handleKeyDown(event) {
-      if (event.key === "Escape") closeQR();
+      if (event.key === "Escape") {
+        if (installHelpOpen) closeInstallHelp();
+        else closeQR();
+      }
     }
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [qrOpen]);
+  }, [qrOpen, installHelpOpen]);
 
   return (
     <>
@@ -276,6 +442,37 @@ function App() {
             <p className="intro-caption">Preparing your introduction</p>
           </div>
         </div>
+      )}
+
+      {introPhase === "done" && (
+        <aside className="top-controls" aria-label="Theme settings">
+          <button
+            className="theme-toggle-btn"
+            type="button"
+            onClick={toggleTheme}
+            aria-label={
+              theme === "light"
+                ? "Switch to Classic Dark mode"
+                : "Switch to Warm Beige mode"
+            }
+            title={
+              theme === "light"
+                ? "Switch to Classic Dark mode"
+                : "Switch to Warm Beige mode"
+            }
+          >
+            <span className="theme-toggle-icon" aria-hidden="true">
+              <i
+                className={
+                  theme === "light" ? "fa-solid fa-moon" : "fa-solid fa-sun"
+                }
+              />
+            </span>
+            <span className="theme-toggle-label">
+              {theme === "light" ? "Classic Dark" : "Warm Beige"}
+            </span>
+          </button>
+        </aside>
       )}
 
       <main
@@ -346,14 +543,12 @@ function App() {
               <button
                 className="action"
                 type="button"
-                aria-label="Share this business card"
-                onClick={shareCard}
+                aria-label="Install Jontech"
+                onClick={installCard}
+                ref={installButton}
               >
-                <i
-                  className="fa-solid fa-arrow-up-from-bracket"
-                  aria-hidden="true"
-                />
-                <span>Share card</span>
+                <i className="fa-solid fa-download" aria-hidden="true" />
+                <span>Install</span>
               </button>
             </nav>
             <p className="description">
@@ -404,9 +599,62 @@ function App() {
           </section>
         </article>
         <p className="card-footer">
-          Digital business card &middot; Save this page to stay connected
+          <span>Digital business card &middot; Share this card with others</span>
+          <button className="install-button" type="button" onClick={shareCard}>
+            <i className="fa-solid fa-arrow-up-from-bracket" aria-hidden="true" />
+            <span>Share card</span>
+          </button>
         </p>
       </main>
+
+      {installHelpOpen && (
+        <div
+          className="modal"
+          role="presentation"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") closeInstallHelp();
+          }}
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeInstallHelp();
+          }}
+        >
+          <section
+            className="modal-card install-guide"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="install-title"
+          >
+            <button
+              className="modal-close"
+              ref={installCloseButton}
+              type="button"
+              aria-label="Close install instructions"
+              onClick={closeInstallHelp}
+            >
+              <i className="fa-solid fa-xmark" aria-hidden="true" />
+            </button>
+            <div className="install-guide-icon" aria-hidden="true">
+              <i className="fa-solid fa-mobile-screen-button" />
+            </div>
+            <h2 id="install-title">Install Jontech</h2>
+            <p>
+              Add this digital card to your device to open it from your home
+              screen or apps without the browser address bar.
+            </p>
+            <h3>{installGuide.browser}</h3>
+            <ol>
+              {installGuide.steps.map((step) => <li key={step}>{step}</li>)}
+            </ol>
+            <button
+              className="install-guide-done"
+              type="button"
+              onClick={closeInstallHelp}
+            >
+              Got it
+            </button>
+          </section>
+        </div>
+      )}
 
       {qrOpen && (
         <div
@@ -437,7 +685,7 @@ function App() {
               <QRCodeSVG
                 value={window.location.href}
                 size={148}
-                fgColor="#163c83"
+                fgColor={theme === "light" ? "#4a3319" : "#163c83"}
                 level="H"
                 includeMargin
               />
